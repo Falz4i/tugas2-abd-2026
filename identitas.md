@@ -4,6 +4,5 @@ Nama Kelompok: [Nama Kelompok]
 
 | No | Nama Lengkap | NIM | Akun GitHub |
 |:--:|--------------|-----|-------------|
-| 1 | NamaDepan NamaBelakang | 200510370311000 | @username1 |
-| 2 | NamaDepan NamaBelakang | 200510370311000 | @username2 |
-| 3 | NamaDepan NamaBelakang | 200510370311000 | @username3 |
+| 1 | Naufal Zainul Zaki | 202310370311217 | @Falz4i |
+| 2 | Hanisah Aufa Khalidah | 202310370311217 | @aufa22 |

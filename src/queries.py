@@ -1,155 +1,81 @@
-from typing import List, Optional
+"""Kueri Phase 2 untuk arsip judul CNN Indonesia dan Tempo."""
+from datetime import date
+from pathlib import Path
+
 import duckdb
 import polars as pl
+import streamlit as st
+
+DATASET = Path(__file__).resolve().parents[1] / "data/processed/jejak_liputan.parquet"
+MEDIA = ("CNN Indonesia", "Tempo")
 
 
-def _execute_to_polars(con: duckdb.DuckDBPyConnection, sql: str) -> pl.DataFrame:
-    """Helper konversi kueri SQL DuckDB ke Polars DataFrame yang kompatibel lintas versi DuckDB."""
-    try:
-        return con.sql(sql).pl()
-    except (AttributeError, Exception):
-        return pl.from_arrow(con.execute(sql).arrow())
+def _parameters(start, end, sources, keyword, path):
+    start, end = start.replace(day=1), end.replace(day=1)
+    if start > end:
+        raise ValueError("Bulan awal harus mendahului atau sama dengan bulan akhir.")
+    sources = sorted(set(sources))
+    if not set(sources).issubset(MEDIA):
+        raise ValueError("Media tidak dikenal.")
+    return {
+        "file": str(Path(path).resolve()),
+        "start": start,
+        "end": end,
+        "sources": sources,
+        "term": keyword.strip().lower(),
+    }
 
 
-def query_ringkasan_wilayah(con: duckdb.DuckDBPyConnection, table_name: str = "transaksi") -> pl.DataFrame:
-    """Melakukan agregasi metrik data berdasarkan wilayah menggunakan DuckDB in-process.
-
-    Args:
-        con: Koneksi database DuckDB aktif.
-        table_name: Nama tabel atau path file Parquet.
-
-    Returns:
-        pl.DataFrame: DataFrame Polars berisi ringkasan agregasi per wilayah.
-    """
-    sql = f"""
-        SELECT
-            wilayah,
-            COUNT(*) AS total_transaksi,
-            ROUND(AVG(nilai_metrik), 2) AS rata_rata_metrik,
-            ROUND(MIN(nilai_metrik), 2) AS nilai_minimum,
-            ROUND(MAX(nilai_metrik), 2) AS nilai_maksimum,
-            ROUND(SUM(nilai_metrik), 2) AS total_metrik
-        FROM {table_name}
-        GROUP BY wilayah
-        ORDER BY total_transaksi DESC;
-    """
-    return _execute_to_polars(con, sql)
+def _read(sql, params):
+    dataset = Path(params["file"]).stat()
+    return _cached_read(sql, params, (dataset.st_size, dataset.st_mtime_ns))
 
 
-def query_agregasi_temporal(
-    con: duckdb.DuckDBPyConnection,
-    table_name: str = "transaksi",
-    time_col: str = "tanggal",
-    interval: str = "1 DAY"
-) -> pl.DataFrame:
-    """Melakukan windowing agregasi waktu menggunakan DuckDB.
-
-    Args:
-        con: Koneksi DuckDB aktif.
-        table_name: Nama tabel atau file Parquet.
-        time_col: Nama kolom bertipe tanggal/waktu.
-        interval: Interval truncating waktu (misal '1 DAY', '1 MONTH').
-
-    Returns:
-        pl.DataFrame: Deret waktu hasil agregasi.
-    """
-    sql = f"""
-        SELECT
-            date_trunc('{interval.split()[-1].lower()}', {time_col}) AS periode_waktu,
-            COUNT(*) AS volume,
-            ROUND(AVG(nilai_metrik), 2) AS rata_nilai,
-            ROUND(SUM(nilai_metrik), 2) AS total_nilai
-        FROM {table_name}
-        GROUP BY 1
-        ORDER BY 1 ASC;
-    """
-    return _execute_to_polars(con, sql)
+@st.cache_data(max_entries=64, show_spinner=False)
+def _cached_read(sql, params, file_version):
+    """Versi berkas menjadi bagian dari kunci cache saat Parquet diganti."""
+    with duckdb.connect() as con:
+        result = con.sql(sql, params=params)
+        if hasattr(result, "to_arrow_table"):
+            return pl.from_arrow(result.to_arrow_table())
+        return pl.from_arrow(result.fetch_arrow_table())
 
 
-def query_distribusi_kategori(con: duckdb.DuckDBPyConnection, table_name: str = "transaksi") -> pl.DataFrame:
-    """Menghitung sebaran frekuensi dan kontribusi persentase per kategori data."""
-    sql = f"""
-        WITH hitung_total AS (
-            SELECT COUNT(*) AS grand_total FROM {table_name}
+def monthly_summary(start: date, end: date, sources=MEDIA, keyword="", path=DATASET):
+    """Satu baris per bulan dan media. Bulan akhir termasuk dalam hasil."""
+    params = _parameters(start, end, sources, keyword, path)
+    return _read("""
+        WITH months AS (
+            SELECT period::DATE AS month
+            FROM generate_series(CAST($start AS DATE), CAST($end AS DATE),
+                                 INTERVAL '1 month') AS calendar(period)
+        ), media AS (
+            SELECT unnest(CAST($sources AS VARCHAR[])) AS source
+        ), counts AS (
+            SELECT month, source, count(*) AS total,
+                   count(*) FILTER (WHERE contains(lower(title), $term)) AS hits
+            FROM read_parquet($file)
+            WHERE month BETWEEN $start AND $end AND source IN (SELECT source FROM media)
+            GROUP BY month, source
         )
-        SELECT
-            t.kategori,
-            COUNT(*) AS jumlah_item,
-            ROUND(COUNT(*) * 100.0 / h.grand_total, 2) AS persentase_kontribusi,
-            ROUND(AVG(t.nilai_metrik), 2) AS rata_rata
-        FROM {table_name} t, hitung_total h
-        GROUP BY t.kategori, h.grand_total
-        ORDER BY jumlah_item DESC;
-    """
-    return _execute_to_polars(con, sql)
+        SELECT months.month, media.source, coalesce(total, 0) AS total,
+               CASE WHEN $term <> '' THEN coalesce(hits, 0) END AS hits,
+               CASE WHEN $term <> '' THEN 100.0 * hits / nullif(total, 0) END AS pct
+        FROM months CROSS JOIN media
+        LEFT JOIN counts USING (month, source)
+        ORDER BY months.month, media.source
+    """, params)
 
 
-def query_top_n(
-    con: duckdb.DuckDBPyConnection,
-    table_name: str = "transaksi",
-    group_col: str = "wilayah",
-    metric_col: str = "nilai_metrik",
-    n: int = 10
-) -> pl.DataFrame:
-    """Mengambil Top-N grup berdasarkan jumlah agregat tertentu."""
-    sql = f"""
-        SELECT
-            {group_col},
-            COUNT(*) AS total_frekuensi,
-            ROUND(SUM({metric_col}), 2) AS akumulasi_metrik
-        FROM {table_name}
-        GROUP BY {group_col}
-        ORDER BY akumulasi_metrik DESC
-        LIMIT {n};
-    """
-    return _execute_to_polars(con, sql)
-
-
-
-def hitung_moving_average_polars(
-    df: pl.DataFrame,
-    col_name: str = "rata_nilai",
-    window_size: int = 7
-) -> pl.DataFrame:
-    """Menghitung rata-rata bergerak (moving average) menggunakan Polars Expressions.
-
-    Args:
-        df: DataFrame input dengan kolom terurut.
-        col_name: Nama kolom numerik target.
-        window_size: Ukuran jendela geser (misal 7 hari).
-
-    Returns:
-        pl.DataFrame: DataFrame dengan kolom baru berisi nilai moving average.
-    """
-    return df.with_columns(
-        pl.col(col_name)
-        .rolling_mean(window_size=window_size)
-        .round(2)
-        .alias(f"ma_{window_size}d")
-    )
-
-
-def deteksi_anomali_iqr_polars(
-    df: pl.DataFrame,
-    col_name: str = "nilai_metrik",
-    multiplier: float = 1.5
-) -> pl.DataFrame:
-    """Mendeteksi data pencilan (outlier) menggunakan metode Interquartile Range (IQR) di Polars.
-
-    Args:
-        df: DataFrame input.
-        col_name: Nama kolom numerik.
-        multiplier: Faktor pengali IQR (default 1.5).
-
-    Returns:
-        pl.DataFrame: DataFrame dengan kolom boolean 'is_outlier'.
-    """
-    q1 = df[col_name].quantile(0.25)
-    q3 = df[col_name].quantile(0.75)
-    iqr = q3 - q1
-    lower_bound = q1 - (multiplier * iqr)
-    upper_bound = q3 + (multiplier * iqr)
-
-    return df.with_columns(
-        ((pl.col(col_name) < lower_bound) | (pl.col(col_name) > upper_bound)).alias("is_outlier")
-    )
+def sample_titles(start: date, end: date, sources=MEDIA, keyword="", path=DATASET):
+    """Hingga 100 judul terbaru dalam cakupan filter yang sama."""
+    params = _parameters(start, end, sources, keyword, path)
+    return _read("""
+        SELECT source, published_at, title
+        FROM read_parquet($file)
+        WHERE month BETWEEN $start AND $end
+          AND source IN (SELECT unnest(CAST($sources AS VARCHAR[])))
+          AND contains(lower(title), $term)
+        ORDER BY published_at DESC, source, title
+        LIMIT 100
+    """, params)

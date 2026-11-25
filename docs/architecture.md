@@ -31,7 +31,7 @@ Dashboard ini ditujukan bagi peneliti media dan mahasiswa jurnalistik yang perlu
 flowchart TD
     A["Tiga CSV Indonesia News"] --> B["Pembersihan dan audit Tugas 1"]
     B --> C["Parquet bersih"]
-    C --> D["Polars memilih kolom dan membentuk bulan UTC"]
+    C --> D["PyArrow memilih kolom dan membentuk bulan UTC"]
     D --> E["Parquet ringkas untuk deployment"]
     F["Filter pengguna di Streamlit"] --> G{"Hasil filter ada di cache?"}
     G -->|Belum| H["DuckDB menghitung agregat atau mengambil judul"]
@@ -45,7 +45,7 @@ Tahap persiapan berjalan sebelum deployment. Docker di Hugging Face Spaces menja
 
 ## 4. Pemrosesan, metrik, dan caching
 
-**Polars.** Pada Phase 2, pipeline akan membaca Parquet bersih secara lazy, memilih tiga kolom yang diperlukan, menurunkan bulan dari waktu terbit, dan menulis Parquet ringkas. Jumlah baris keluaran dan total per media akan dicocokkan dengan audit Tugas 1 sebelum dipakai aplikasi.
+**PyArrow dan Polars.** Skrip persiapan memakai PyArrow untuk membaca tiga kolom dari Parquet bersih, membentuk bulan terbit, dan memvalidasi jumlah per media. Modul kueri mengembalikan hasil agregat dan cuplikan judul sebagai DataFrame Polars untuk Streamlit.
 
 **DuckDB.** Kueri membatasi media dan rentang bulan terlebih dahulu. Untuk setiap pasangan media–bulan, penyebut adalah seluruh artikel dalam cakupan filter tersebut. Pembilang menghitung judul yang cocok dengan satu frasa literal. Filter kata kunci diterapkan pada pembilang supaya penyebut tetap mewakili semua judul. Porsi dihitung sebagai 100 × pembilang / penyebut. Jika ada artikel tetapi tidak ada kecocokan, hasilnya 0%. Jika arsip tidak memiliki artikel pada media–bulan tersebut, grafik menampilkan celah. Saat kata kunci kosong, aplikasi menampilkan volume arsip dan meminta pengguna mengisi kata untuk melihat porsinya.
 

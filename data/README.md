@@ -27,32 +27,31 @@ Arsip mencakup **4 Agustus 2014 sampai 31 Mei 2020** dengan interpretasi waktu U
 
 Simpan berkas sebagai `data/processed/jejak_liputan.parquet` di repositori Tugas 2. Tautan unduhan menunjuk revisi yang dipakai tim agar hasil analisis dapat direproduksi. [Halaman dataset Hugging Face](https://huggingface.co/datasets/Falzz/jejak-liputan-indonesia) · [Unduh Parquet, 26,04 MB](https://huggingface.co/datasets/Falzz/jejak-liputan-indonesia/resolve/0404d9dd52f052b23340c9afd73c7a97072be1e0/jejak_liputan.parquet?download=true).
 
-## Membuat ulang dari data Tugas 1
+Dari direktori utama Tugas 2, pasang dependensi proyek lalu unduh rilis dengan perintah berikut. Skrip memeriksa SHA-256 sebelum menempatkan berkas di jalur dashboard.
 
-1. Jika Parquet bersih sudah tersedia dari Tugas 1, langsung gunakan berkas tersebut pada langkah 3.
-2. Untuk memulai dari data mentah, unduh arsip Kaggle di atas, ekstrak ketiga CSV ke `data/raw/archive/` di repositori Tugas 1, lalu jalankan notebook `notebooks/01_data_profiling.ipynb` dan `notebooks/02_data_cleaning.ipynb` sesuai panduan repositori tersebut. Hasilnya tersimpan di `data/processed/indonesia_news_clean.parquet`.
-3. Dari direktori utama repositori **Tugas 2**, jalankan blok Python berikut dengan PyArrow dari `requirements.txt`. Jalur sumber mengikuti susunan folder proyek lokal. Sesuaikan `src` jika repositori Tugas 1 berada di lokasi lain.
-
-```python
-from pathlib import Path
-
-import pyarrow as pa
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
-
-src = Path("../../tugas1-abd-2026/data/processed/indonesia_news_clean.parquet")
-out = Path("data/processed/jejak_liputan.parquet")
-out.parent.mkdir(parents=True, exist_ok=True)
-
-data = pq.read_table(src, columns=["source", "published_at", "title"])
-month = pc.floor_temporal(data["published_at"], unit="month").cast(pa.date32())
-data = data.append_column("month", month)
-pq.write_table(data, out, compression="zstd")
-
-saved = pq.read_table(out)
-assert saved.equals(data)
-assert saved.num_rows == 848_028
-print(pc.value_counts(saved["source"]).to_pylist())
+```powershell
+python -m pip install -r requirements.txt
+python -m src.prepare_data
 ```
 
-Git mengabaikan folder `data/processed/`. Pada clone baru atau saat menyiapkan deployment, hasilkan kembali Parquet ringkas dengan langkah di atas atau salin berkas yang sudah diverifikasi ke jalur yang sama.
+## Membuat ulang dari data Tugas 1
+
+Untuk memakai sumber lokal, gunakan Parquet bersih yang dihasilkan notebook pembersihan Tugas 1. Skrip memilih kolom, membentuk bulan UTC, dan memeriksa jumlah artikel per media sebelum mengganti berkas keluaran.
+
+```powershell
+python -m src.prepare_data --source "../../tugas1-abd-2026/data/processed/indonesia_news_clean.parquet"
+```
+
+## Menggunakan kueri dari Streamlit
+
+```python
+from datetime import date
+from src.queries import monthly_summary, sample_titles
+
+awal = akhir = date(2014, 8, 1)
+tren = monthly_summary(awal, akhir, keyword="pemilu")
+contoh = sample_titles(awal, akhir, sources=["CNN Indonesia"], keyword="pemilu")
+```
+
+Kedua fungsi mengembalikan DataFrame Polars. Rentang mencakup bulan awal dan akhir. Ringkasan menghasilkan kolom `month`, `source`, `total`, `hits`, dan `pct` (0–100). Kata kunci kosong menampilkan volume dengan `hits` dan `pct` kosong. Bulan tanpa arsip memiliki `total=0` dan `pct` kosong. Untuk ringkasan lintas bulan, hitung ulang persentase dari jumlah seluruh kecocokan dibagi jumlah seluruh artikel. Kueri judul mengembalikan hingga 100 baris.
+Uji penerimaan backend menggunakan data lokal dapat dijalankan dari akar repositori dengan `python -m unittest discover -s tests`.

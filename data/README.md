@@ -1,37 +1,54 @@
-# Panduan Dataset — Tugas 2 (Data Product)
+# Data Jejak Liputan Indonesia
 
-Folder ini digunakan untuk menempatkan dataset yang dipakai dalam dashboard analitik.
+Dashboard membandingkan porsi judul berita yang memuat kata atau frasa tertentu pada arsip CNN Indonesia dan Tempo. Satu baris mewakili satu artikel yang lolos pembersihan Tugas 1.
 
-> **PENTING:** Jangan pernah melakukan `git commit` atau `git push` file dataset besar (>100MB) langsung ke repository GitHub! File data besar harus diabaikan melalui `.gitignore`.
+## Sumber dan cakupan
 
----
+Dataset **Indonesia News** dihimpun oleh azizainunnajib. Tiga berkas sumbernya adalah `cnn.csv`, `tempo.csv`, dan `tempo010619310520.csv`. [Unduh dataset di Kaggle](https://www.kaggle.com/datasets/azizainunnajib/indonesia-news).
 
-## Informasi Dataset Kelompok
+| Tahap | Format | Jumlah artikel | Ukuran |
+|---|---|---:|---:|
+| Arsip awal | 3 CSV | 988.814 | 2,16 GB |
+| Hasil pembersihan Tugas 1 | Parquet | 848.028 | 639,60 MB |
+| Input dashboard, `data/processed/jejak_liputan.parquet` | Parquet, kompresi Zstandard | 848.028 | sekitar 26 MB |
 
-- **Nama Dataset:** [Isi nama dataset]
-- **Sumber Data:** [Tautan sumber resmi / URL portal]
-- **Ukuran File Mentah:** [Ukuran dalam MB / GB]
-- **Jumlah Baris:** [Jumlah baris data, minimal >500 MB atau >1 Juta Baris]
-- **Format File:** [CSV / Parquet]
+Arsip mencakup **4 Agustus 2014 sampai 31 Mei 2020** dengan interpretasi waktu UTC. Tahun 2014 dan 2020 hanya tercakup sebagian. Jumlah artikel setelah pembersihan adalah **332.444 untuk CNN Indonesia** dan **515.584 untuk Tempo**. Saat membandingkan media, gunakan total artikel masing-masing media dalam bulan yang dipilih sebagai penyebut.
 
----
+## Skema Parquet dashboard
 
-## Instruksi Pengunduhan & Penyiapan Data
+| Kolom | Tipe | Arti |
+|---|---|---|
+| `source` | String | Nama media untuk pengelompokan dan perbandingan. |
+| `published_at` | Timestamp, mikrodetik | Waktu terbit yang diinterpretasikan sebagai UTC. Berkas menyimpannya tanpa penanda zona waktu. |
+| `title` | String | Judul artikel untuk pencarian frasa dan pemeriksaan konteks. |
+| `month` | Date | Tanggal pertama bulan terbit, diturunkan dari `published_at` untuk agregasi bulanan. |
 
-Tuliskan perintah atau script untuk mengunduh dataset secara otomatis:
+## Menyiapkan data pada komputer lain
 
-```bash
-# Contoh pengunduhan menggunakan curl / wget:
-# curl -L -o data/dataset_mentah.parquet https://url-sumber-data.com/data.parquet
+1. Jika Parquet bersih sudah tersedia dari Tugas 1, langsung gunakan berkas tersebut pada langkah 3.
+2. Untuk memulai dari data mentah, unduh arsip Kaggle di atas, ekstrak ketiga CSV ke `data/raw/archive/` di repositori Tugas 1, lalu jalankan notebook `notebooks/01_data_profiling.ipynb` dan `notebooks/02_data_cleaning.ipynb` sesuai panduan repositori tersebut. Hasilnya tersimpan di `data/processed/indonesia_news_clean.parquet`.
+3. Dari direktori utama repositori **Tugas 2**, jalankan blok Python berikut dengan PyArrow dari `requirements.txt`. Jalur sumber mengikuti susunan folder proyek lokal. Sesuaikan `src` jika repositori Tugas 1 berada di lokasi lain.
+
+```python
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
+
+src = Path("../../tugas1-abd-2026/data/processed/indonesia_news_clean.parquet")
+out = Path("data/processed/jejak_liputan.parquet")
+out.parent.mkdir(parents=True, exist_ok=True)
+
+data = pq.read_table(src, columns=["source", "published_at", "title"])
+month = pc.floor_temporal(data["published_at"], unit="month").cast(pa.date32())
+data = data.append_column("month", month)
+pq.write_table(data, out, compression="zstd")
+
+saved = pq.read_table(out)
+assert saved.equals(data)
+assert saved.num_rows == 848_028
+print(pc.value_counts(saved["source"]).to_pylist())
 ```
 
----
-
-## Skema Struktur Kolom Data
-
-| Nama Kolom | Tipe Data | Deskripsi Makna Bisnis |
-|------------|:---------:|------------------------|
-| `timestamp` | Datetime | Waktu pencatatan observasi |
-| `wilayah` | Utf8 | Nama provinsi / kota / stasiun |
-| `kategori` | Utf8 | Pengelompokan jenis data |
-| `nilai_metrik` | Float64 | Angka pengukuran utama |
+Git mengabaikan folder `data/processed/`. Pada clone baru atau saat menyiapkan deployment, hasilkan kembali Parquet ringkas dengan langkah di atas atau salin berkas yang sudah diverifikasi ke jalur yang sama.

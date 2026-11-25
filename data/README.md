@@ -23,7 +23,11 @@ Arsip mencakup **4 Agustus 2014 sampai 31 Mei 2020** dengan interpretasi waktu U
 | `title` | String | Judul artikel untuk pencarian frasa dan pemeriksaan konteks. |
 | `month` | Date | Tanggal pertama bulan terbit, diturunkan dari `published_at` untuk agregasi bulanan. |
 
-## Menyiapkan data pada komputer lain
+## Unduh data siap pakai
+
+Simpan berkas sebagai `data/processed/jejak_liputan.parquet` di repositori Tugas 2. Tautan unduhan menunjuk revisi yang dipakai tim agar hasil analisis dapat direproduksi. [Halaman dataset Hugging Face](https://huggingface.co/datasets/Falzz/jejak-liputan-indonesia) · [Unduh Parquet, 26,04 MB](https://huggingface.co/datasets/Falzz/jejak-liputan-indonesia/resolve/0404d9dd52f052b23340c9afd73c7a97072be1e0/jejak_liputan.parquet?download=true).
+
+## Membuat ulang dari data Tugas 1
 
 1. Jika Parquet bersih sudah tersedia dari Tugas 1, langsung gunakan berkas tersebut pada langkah 3.
 2. Untuk memulai dari data mentah, unduh arsip Kaggle di atas, ekstrak ketiga CSV ke `data/raw/archive/` di repositori Tugas 1, lalu jalankan notebook `notebooks/01_data_profiling.ipynb` dan `notebooks/02_data_cleaning.ipynb` sesuai panduan repositori tersebut. Hasilnya tersimpan di `data/processed/indonesia_news_clean.parquet`.

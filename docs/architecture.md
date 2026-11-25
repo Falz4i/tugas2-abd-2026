@@ -63,7 +63,7 @@ Tahap persiapan berjalan sebelum deployment. Docker di Hugging Face Spaces menja
 
 **Uji penerimaan untuk prototipe.** Tanpa pembatasan periode dan media, kartu volume harus menunjukkan 848.028 artikel. Mengganti kata kunci harus mengubah hasil pencocokan tanpa mengubah total artikel dalam cakupan. Pada contoh bulan Agustus 2014, arsip bulanan Tugas 1 mencatat 694 artikel CNN Indonesia dan nol artikel Tempo. Grafik persentase harus menampilkan celah untuk Tempo pada bulan itu.
 
-## 6. Usulan pembagian tanggung jawab
+## 6. Pembagian tanggung jawab
 
 | Anggota | Phase 1 | Phase 2 | Phase 3 dan final |
 |---|---|---|---|
